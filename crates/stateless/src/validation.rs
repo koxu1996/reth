@@ -1,5 +1,5 @@
 use crate::{witness_db::WitnessDatabase, ExecutionWitness};
-use alloc::{
+use std::{
     collections::BTreeMap,
     string::{String, ToString},
     sync::Arc,
@@ -125,6 +125,7 @@ pub fn stateless_validation(
     witness: ExecutionWitness,
     chain_spec: Arc<ChainSpec>,
 ) -> Result<B256, StatelessValidationError> {
+    println!("cycle-tracker-report-start: deserialize-headers");
     let mut ancestor_headers: Vec<Header> = witness
         .headers
         .iter()
@@ -137,12 +138,17 @@ pub fn stateless_validation(
     // Sort the headers by their block number to ensure that they are in
     // ascending order.
     ancestor_headers.sort_by_key(|header| header.number());
+    println!("cycle-tracker-report-end: deserialize-headers");
 
     // Validate block against pre-execution consensus rules
+    println!("cycle-tracker-report-start: consensus-validation");
     validate_block_consensus(chain_spec.clone(), &current_block)?;
+    println!("cycle-tracker-report-end: consensus-validation");
 
     // Check that the ancestor headers form a contiguous chain and are not just random headers.
+    println!("cycle-tracker-report-start: compute-ancestor-hashes");
     let ancestor_hashes = compute_ancestor_hashes(&current_block, &ancestor_headers)?;
+    println!("cycle-tracker-report-end: compute-ancestor-hashes");
 
     // Get the last ancestor header and retrieve its state root.
     //
@@ -150,29 +156,40 @@ pub fn stateless_validation(
     // retrieve the previous state root.
     // The edge case here would be the genesis block, but we do not create proofs for the genesis
     // block.
+    println!("cycle-tracker-report-start: extract-pre-state-root");
     let pre_state_root = match ancestor_headers.last() {
         Some(prev_header) => prev_header.state_root,
         None => return Err(StatelessValidationError::MissingAncestorHeader),
     };
+    println!("cycle-tracker-report-end: extract-pre-state-root");
 
     // First verify that the pre-state reads are correct
+    println!("cycle-tracker-report-start: verify-execution-witness");
     let (mut sparse_trie, bytecode) = verify_execution_witness(&witness, pre_state_root)?;
+    println!("cycle-tracker-report-end: verify-execution-witness");
 
     // Create an in-memory database that will use the reads to validate the block
+    println!("cycle-tracker-report-start: create-in-memory-db");
     let db = WitnessDatabase::new(&sparse_trie, bytecode, ancestor_hashes);
+    println!("cycle-tracker-report-end: create-in-memory-db");
 
     // Execute the block
+    println!("cycle-tracker-report-start: execute-block");
     let basic_block_executor = EthExecutorProvider::ethereum(chain_spec.clone());
     let executor = basic_block_executor.batch_executor(db);
     let output = executor
         .execute(&current_block)
         .map_err(|e| StatelessValidationError::StatelessExecutionFailed(e.to_string()))?;
+    println!("cycle-tracker-report-end: execute-block");
 
     // Post validation checks
+    println!("cycle-tracker-report-start: post-execution-validation");
     validate_block_post_execution(&current_block, &chain_spec, &output.receipts, &output.requests)
         .map_err(StatelessValidationError::ConsensusValidationFailed)?;
+    println!("cycle-tracker-report-end: post-execution-validation");
 
     // Compute and check the post state root
+    println!("cycle-tracker-report-start: compute-post-state-root");
     let hashed_state = HashedPostState::from_bundle_state::<KeccakKeyHasher>(&output.state.state);
     let state_root = crate::root::calculate_state_root(&mut sparse_trie, hashed_state)
         .map_err(|_e| StatelessValidationError::StatelessStateRootCalculationFailed)?;
@@ -182,9 +199,14 @@ pub fn stateless_validation(
             expected: current_block.state_root,
         });
     }
+    println!("cycle-tracker-report-end: compute-post-state-root");
+
+    println!("cycle-tracker-report-start: return-block-hash");
+    let result = current_block.hash_slow();
+    println!("cycle-tracker-report-end: return-block-hash");
 
     // Return block hash
-    Ok(current_block.hash_slow())
+    Ok(result)
 }
 
 /// Performs consensus validation checks on a block without execution or state validation.

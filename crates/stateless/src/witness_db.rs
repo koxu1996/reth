@@ -1,7 +1,7 @@
 //! Provides the [`WitnessDatabase`] type, an implementation of [`reth_revm::Database`]
 //! specifically designed for stateless execution environments.
 
-use alloc::{collections::btree_map::BTreeMap, format};
+use std::{collections::btree_map::BTreeMap, format};
 use alloy_primitives::{keccak256, map::B256Map, Address, B256, U256};
 use alloy_rlp::Decodable;
 use alloy_trie::{TrieAccount, EMPTY_ROOT_HASH};

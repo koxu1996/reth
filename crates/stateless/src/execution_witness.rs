@@ -13,7 +13,7 @@ there is an `ExecutionWitness` that comes with the block, so its
 not just used for debugging.
 
 */
-use alloc::vec::Vec;
+use std::vec::Vec;
 use alloy_primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
